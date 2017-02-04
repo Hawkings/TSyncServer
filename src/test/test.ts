@@ -1,5 +1,11 @@
-var chai = require("chai");
+import chai = require("chai");
 var should = chai.should();
+var expect = chai.expect;
+
+import {Remote} from '../sharedobject/Remote';
+import {Validators} from '../sharedobject/Validators';
+
+declare function schemaFromObject(any) : any;
 
 describe("schemaFromObject", function() {
 	it("should create a valid schema for an object with a single number", function() {
@@ -27,3 +33,33 @@ describe("schemaFromObject", function() {
 		schema.properties[propName].type.should.equal(propType);
 	}
 });
+
+describe('Remote decorator testing', function() {
+	class RemoteTest {
+	  @Remote(Validators.isNumber.isGreaterOrEqual(0))
+	  public nonNegative: number;
+		@Remote(Validators.isString.isRegex(/^\+?[0-9]{9}$/))
+	  public phoneNumber: string;
+	}
+	let x = new RemoteTest();
+
+	it('@Remote decorator throws when writing with wrong values', () => {
+		expect(() => {x.nonNegative = <any>"14"}).to.throw();
+		expect(() => {x.nonNegative = -3}).to.throw();
+		expect(() => {x.phoneNumber = <any>965000000}).to.throw();
+		expect(() => {x.phoneNumber = "+96500000"}).to.throw();
+		expect(() => {x.phoneNumber = "1196500000"}).to.throw();
+
+		expect(() => {x.phoneNumber = "965000000"}).not.to.throw();
+		expect(() => {x.phoneNumber = "+147748940"}).not.to.throw();
+		expect(() => {x.nonNegative = 14}).not.to.throw();
+	})
+
+	it('@Remote decorator stores correct values', () => {
+		x.nonNegative = 1779561;
+		expect(x.nonNegative).to.eq(1779561);
+
+		x.phoneNumber = "965112233";
+		expect(x.phoneNumber).to.eq("965112233");
+	})
+})
