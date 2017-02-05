@@ -17,6 +17,12 @@ export class ValidatorChain {
     return this;
   }
 
+  get isNumericString() {
+    this.chain(this.isType("string"));
+    this.chain((v) => (!isNaN(v) ? v : undefined));
+    return this;
+  }
+
   get isString() {
     this.chain(this.isType("string"));
     return this;
@@ -27,8 +33,13 @@ export class ValidatorChain {
     return this;
   }
 
-  isGreaterOrEqual(than: number) {
+  isGreatOrEqual(than: number) {
     this.chain((v) => v >= than ? v : undefined);
+    return this;
+  }
+
+  isLessOrEqual(than: number) {
+    this.chain((v) => v <= than ? v : undefined);
     return this;
   }
 
