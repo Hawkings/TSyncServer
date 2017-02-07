@@ -4,7 +4,7 @@ import events = require('events');
 
 import {IPeer} from './IPeer';
 import {Peer} from './Peer';
-import {RemoteSetWriteDriver as SetWriteDriver} from '../sharedobject/Remote';
+import {RemoteSetWriteDriver as SetWriteDriver, RemoteObject} from '../sharedobject/Remote';
 
 var WSServer = websocket.server;
 
@@ -13,7 +13,7 @@ interface IClass extends Function {
 }
 
 export class IServerConfig {
-  sharedObjects?: [any]
+  sharedObjects?: any[]
 }
 
 // TODO: Bad way to do so
@@ -46,7 +46,11 @@ export class Server extends events.EventEmitter {
 
     if (config.sharedObjects) {
       config.sharedObjects.forEach((v) => {
-        this.sharedObjectConstructors[v.name] = v;
+        if ('__remoteTable' in v.prototype && '__isRemote' in v.prototype) {
+          this.sharedObjectConstructors[v.name] = v;
+        } else {
+          throw 'Class '+v['name']+' is not @Remote decorated';
+        }
       })
     }
 
@@ -112,7 +116,7 @@ export class Server extends events.EventEmitter {
     });
   }
 
-  createSharedObject(id: string, objectConstructor: any, owner?: Peer, args?: [any]): any {
+  createSharedObject<T>(id: string, objectConstructor: any, owner?: Peer, args?: [any]): RemoteObject&T {
     var name = objectConstructor.name;
     if (name) {
       if (objectConstructor.name in this.sharedObjectConstructors) {
@@ -148,4 +152,31 @@ export class Server extends events.EventEmitter {
       this.peers[k].sendRaw(message);
     }
   }
+
+  subscribe(p: Peer, path: string, obj: RemoteObject) {
+
+  }
+}
+
+function ServerDrivers(s: Server) {
+  s.on('newObject', (obj: RemoteObject) => {
+    // TODO: Notify owner of object
+  })
+  .on('objectDestroy', (obj: RemoteObject) => {
+    // TODO: Notify owner (if still exists) of object
+    // TODO: Remove object from rooms
+    // TODO: Broadcast if object's owner is server
+  })
+  .on('newPeer', (p: Peer) => {
+    // TODO: Notify server config (if any)
+    // TODO: Notify server objects (if any)
+  })
+  .on('peerDisconect', (p: Peer) => {
+    // TODO: Destroy objects
+    // TODO: Remove peer from rooms
+  })
+  .on('objectChange', (obj: RemoteObject) => {
+    // NOTE: Don't notify anyone else: Room's must notify peers about changes.
+    // TODO: Notify all (if owned by server)
+  })
 }

@@ -1,5 +1,11 @@
 import {ValidatorChain, Validator} from './Validators';
 
+// TODO: Use this interface instead of using any.
+export interface RemoteObject {
+  __remoteTable;
+  __remoteInstance;
+}
+
 function RemoteMemberGetter(member) {
   return () => this.__remoteInstance.sharedValues[member];
 }
@@ -91,8 +97,6 @@ export function Remote(constructor: Function): any {
       uuid: null
     }
 
-    console.log(this.__remoteTable);
-
     for (var k in this.__remoteTable.sharedMembers) {
       Object.defineProperty(this, k, {
         get: RemoteMemberGetter.call(this, k),
@@ -103,6 +107,7 @@ export function Remote(constructor: Function): any {
   }
 
   x.prototype = constructor.prototype;
+  x.prototype.__isRemote = true;
   Object.defineProperty(x, "name", {
     value: constructor["name"]
   })
@@ -127,6 +132,6 @@ function InstallMemberDecorator(validator: Function | ValidatorChain): Function 
   }
 }
 
-export function Member(validator: Function | ValidatorChain): Function {
-  return InstallMemberDecorator(validator);
+export function Member(validator?: Function | ValidatorChain): Function {
+  return InstallMemberDecorator(validator || ((v) => v));
 }

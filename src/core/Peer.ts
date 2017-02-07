@@ -72,7 +72,7 @@ export class Peer extends events.EventEmitter implements IPeer {
     }
     try {
       UpdateKeyValue(x.object, json.k, json.v);
-      x.object.emit('change', json);
+      x.object.emit('tsync-change', json);
     } catch (e) {
       console.error("Peer " + this.mId + " tried to update " + json.k + " with value " + json.v + " throwing \n" + e);
     }

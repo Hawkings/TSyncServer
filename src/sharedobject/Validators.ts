@@ -2,35 +2,38 @@ export type Validator = (v: any) => any | undefined;
 export type ValidatorChainer = (v: any) => ValidatorChain;
 
 export class ValidatorChain {
-  last_chain : [Validator] = <any>[];
+  last_chain: [Validator] = <any>[];
 
   private chain(f: Validator) {
     this.last_chain.push(f);
   }
 
-  private isType(t) {
-    return (v) => (typeof v === t ? v : undefined);
+  isType(t) {
+    this.chain((v) => (typeof v === t ? v : undefined));
+    return this;
   }
 
   get isNumber() {
-    this.chain(this.isType("number"));
+    return this.isType("number");
+  }
+
+  get isInteger() {
+    this.chain((v) => ((~~v) === v ? v : undefined));
     return this;
   }
 
   get isNumericString() {
-    this.chain(this.isType("string"));
+    this.isType("string");
     this.chain((v) => (!isNaN(v) ? v : undefined));
     return this;
   }
 
   get isString() {
-    this.chain(this.isType("string"));
-    return this;
+    return this.isType("string");
   }
 
-  get isBool() {
-    this.chain(this.isType("boolean"));
-    return this;
+  get isBoolean() {
+    return this.isType("boolean");
   }
 
   isGreatOrEqual(than: number) {
