@@ -1,6 +1,7 @@
 export interface IPeer {
   isServer(): boolean;
   isClient(): boolean;
+  isOwner(id: string): boolean;
   id: string;
   remoteObjects(): {
     [id: string]: {
@@ -8,6 +9,7 @@ export interface IPeer {
       object: any
     }
   }
+  flush(): void;
   // TODO: remove sendRaw???
-  sendRaw(m: string);
+  sendRaw(m: string): void;
 }

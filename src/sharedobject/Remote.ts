@@ -11,7 +11,7 @@ function RemoteMemberGetter(member) {
 }
 
 function RemoteValidate(remoteObject: any, member: string, v: any) {
-  var val: Function | [Validator] = remoteObject.__remoteTable.sharedMembers[member];
+  var val: Function |[Validator] = remoteObject.__remoteTable.sharedMembers[member];
   if (typeof val === "function") {
     let v2 = val(v);
     if (typeof v2 === "undefined") {
@@ -79,6 +79,26 @@ export function RemoteUpdateObjectKeyValue(remoteObject: any, member: string, va
     remoteObject.__remoteInstance.sharedValues[member] = v;
   } else {
     throw "Object does not contain Remote member " + member;
+  }
+}
+
+export function RemoteUpdateMultipleValues(remoteObject: RemoteObject, obj: any) {
+  var x = {};
+
+  // First: check every value passes Validations
+  for (var member in obj) {
+    if (member in remoteObject.__remoteTable.sharedMembers) {
+       x[member] = RemoteValidate(remoteObject, member, obj[member]);
+      if (typeof x[member] === "undefined") {
+        throw "Value " + obj[member] + " for member " + remoteObject.constructor['name'] + "." + member + "is not valid.";
+      }
+    } else {
+      throw "Object does not contain Remote member " + member;
+    }
+  }
+  // Second: copy all data to object
+  for (var k in obj) {
+    remoteObject.__remoteInstance.sharedValues[k] = obj[k];
   }
 }
 

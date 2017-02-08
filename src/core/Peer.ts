@@ -1,7 +1,7 @@
 import {IPeer} from './IPeer';
 import {Server} from './Server'
 import events = require('events');
-import {RemoteUpdateObjectKeyValue as UpdateKeyValue,} from '../sharedobject/Remote';
+import {RemoteUpdateMultipleValues as UpdateMultipleValues } from '../sharedobject/Remote';
 
 export class Peer extends events.EventEmitter implements IPeer {
   private mId: string;
@@ -12,9 +12,12 @@ export class Peer extends events.EventEmitter implements IPeer {
     }
   }
   private writeDriver;
+  private packet: any = {};
 
   constructor(id: string, writeDriver: (any) => any) {
     super();
+    this.Drivers();
+
     this.mId = id;
     this.objects = {};
 
@@ -26,11 +29,15 @@ export class Peer extends events.EventEmitter implements IPeer {
   }
 
   isServer() {
-    return true;
+    return false;
   }
 
   isClient() {
-    return false;
+    return true;
+  }
+
+  isOwner(id: string) {
+    return id in this.objects;
   }
 
   get id(): string {
@@ -65,20 +72,65 @@ export class Peer extends events.EventEmitter implements IPeer {
     }));
   }
 
-  updateObject(json: any) {
-    var x = this.objects[json.id];
-    if (!x) {
-      console.error("Peer " + this.mId + " trying to update " + json.id);
+  updateObject(id: string, obj: any) {
+    var x = this.objects[id];
+    for (var k in obj) {
+      try {
+        UpdateMultipleValues(x.object, obj);
+      } catch (e) {
+        console.error("Peer " + this.mId + " tried to update " + id + " with values " + obj + " throwing \n" + e);
+        return;
+      }
     }
-    try {
-      UpdateKeyValue(x.object, json.k, json.v);
-      x.object.emit('tsync-change', json);
-    } catch (e) {
-      console.error("Peer " + this.mId + " tried to update " + json.k + " with value " + json.v + " throwing \n" + e);
-    }
+    // TODO: this should not be used.
+    if ('on' in x.object && 'emit' in x.object)
+      x.object.emit('tsync-change', obj);
+  }
+
+  flush() : void {
+    console.log("peer@flush");
+    this.writeDriver(JSON.stringify(this.packet));
+    this.packet = {};
   }
 
   sendRaw(message: string) {
     this.writeDriver(message);
+  }
+
+  private Drivers() {
+    this.on('objectChange', (obj, changes, path) => {
+      console.log("peer@objectChange", changes);
+      this.packet.objectChanges =
+      this.packet.objectChanges || {};
+      this.packet.objectChanges[obj.__remoteInstance.id] =
+      this.packet.objectChanges[obj.__remoteInstance.id] || {};
+      for (var k in changes) {
+        this.packet.objectChanges[obj.__remoteInstance.id][k] = changes[k];
+      }
+    })
+    .on('joinRoom', (path) => {
+      console.log('peer@newRoom');
+    })
+    .on('newObject', (obj, path) => {
+      console.log('peer@newObject');
+      // Object is owned by this peer
+      if (path === '') {
+          this.objects[obj.__remoteInstance.id] = {
+            object: obj,
+            type: obj.constructor.name
+          };
+      }
+      this.packet.newObjects = this.packet.newObjects || {};
+      this.packet.newObjects[obj.__remoteInstance.id] = {
+        type: obj.constructor.name,
+        path: path
+      }
+    })
+    .on('leaveRoom', (path) => {
+      console.log('peer@leaveRoom');
+    })
+    .on('destroyObject', (obj, path) => {
+      console.log('peer@destroyObject');
+    })
   }
 }

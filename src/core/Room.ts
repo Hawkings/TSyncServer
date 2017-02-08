@@ -14,6 +14,8 @@ export class Room extends EventEmitter {
 
   constructor(roomName: string, s: Server) {
     super();
+    this.Drivers();
+
     this.parent = null;
     this.server = s;
     this.name = roomName;
@@ -27,40 +29,45 @@ export class Room extends EventEmitter {
 
   add(el: Peer | RemoteObject | Room) {
     if (el instanceof Peer) {
-      var watcher = el;
       this.watchers.push(el);
-      this.objects.forEach((v) => {
-        this.server.subscribe(watcher, this.path, v);
-      });
     } else if (el instanceof Room) {
       if (el.server != this.server)
-        throw 'Trying to add a Room of a server inside Room of another server';
+        throw 'Trying to add a Room inside another Room of different servers';
       el.parent = this;
     } else {
-      var peer = el;
       this.objects.push(el);
-      this.watchers.forEach((v) => {
-        this.server.subscribe(v, this.path, peer);
-      })
+      this.server.subscribeRoom(this, el);
     }
   }
-}
-
-function RoomDrivers(r: Room) {
-  r.on('peerJoin', (p: Peer) => {
-    // TODO: Notify peer
-    // TODO: Notify other peers??
-  })
-  .on('peerLeave', (p: Peer) => {
-    // TODO: Notify peer
-  })
-  .on('objectJoin', (obj: RemoteObject) => {
-    // TODO: Notify all peers
-  })
-  .on('objectLeave', (obj: RemoteObject) => {
-    // TODO: Notify all peers
-  })
-  .on('objectChange', (obj: RemoteObject) => {
-    // TODO: Notify all peers
-  })
+  private Drivers() {
+    this.on('peerJoin', (p: Peer) => {
+      p.emit('newRoom', this.path);
+      for (var k in this.objects) {
+        p.emit('newObject', this.objects[k], this.path);
+      }
+      // TODO: Notify other peers??
+    })
+      .on('peerLeave', (p: Peer) => {
+      // TODO: Notify peer
+    })
+      .on('objectJoin', (obj: RemoteObject) => {
+        // Notify all watchers
+      for (var k in this.watchers) {
+        this.watchers[k].emit('newObject', obj, this.path);
+      }
+    })
+      .on('objectLeave', (obj: RemoteObject) => {
+      // TODO: Notify all peers
+    })
+      .on('objectChange', (obj: RemoteObject, changes: any) => {
+      // Notify all watchers
+      for (var k in this.watchers) {
+        this.watchers[k].emit('objectChange', obj, changes);
+      }
+      // Notify parent room
+      if (this.parent) {
+        this.parent.emit('objectChange', obj, changes)
+      }
+    })
+  }
 }

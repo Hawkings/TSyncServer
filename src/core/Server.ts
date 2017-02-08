@@ -2,9 +2,13 @@ import websocket = require('websocket');
 import http = require('http');
 import events = require('events');
 
+import {Room} from './Room';
 import {IPeer} from './IPeer';
 import {Peer} from './Peer';
 import {RemoteSetWriteDriver as SetWriteDriver, RemoteObject} from '../sharedobject/Remote';
+
+const SERVER_PATH = "/";
+const NO_PATH = "";
 
 var WSServer = websocket.server;
 
@@ -22,6 +26,7 @@ function randomID() {
 }
 
 // TODO: This class is not finished
+// TODO: add events signatures
 export class Server extends events.EventEmitter {
   private ws: websocket.server;
   private http: http.Server;
@@ -33,29 +38,42 @@ export class Server extends events.EventEmitter {
       object: any
     }
   }
+  private otherObjects: {
+    [id: string]: {
+      type: string,
+      object: any
+    }
+  }
 
   private peers: { [id: string]: Peer };
+  private packets: { [peerId: string]: any };
+  private rooms: { [id: string]: Room };
+  private subs: { [objectId: string]: Room[] }
+  private triggering: boolean = false;
 
   // TODO: This constructor is stub
   // TODO: Add arguments
   constructor(config: IServerConfig) {
     super()
+    this.Drivers();
 
+    this.otherObjects = {};
     this.serverObjects = {};
     this.peers = {};
+    this.rooms = {};
+    this.subs = {};
 
     if (config.sharedObjects) {
       config.sharedObjects.forEach((v) => {
         if ('__remoteTable' in v.prototype && '__isRemote' in v.prototype) {
           this.sharedObjectConstructors[v.name] = v;
         } else {
-          throw 'Class '+v['name']+' is not @Remote decorated';
+          throw 'Class ' + v['name'] + ' is not @Remote decorated';
         }
       })
     }
 
     this.http = http.createServer(function(request, response) {
-      console.log((new Date()) + ' Received request for ' + request.url);
       response.writeHead(404);
       response.end();
     })
@@ -84,12 +102,7 @@ export class Server extends events.EventEmitter {
         (w) => connection.sendUTF(w));
 
       this.peers[id] = peer;
-
-      console.log((new Date()) + ' Connection accepted.');
-
-      for (var k in this.serverObjects) {
-        peer.sendObjectMetadata(k, this.serverObjects[k].type, "/");
-      }
+      this.emit('newPeer', peer);
 
       connection.on('message', (message) => {
         // if (message.type === 'utf8') {
@@ -103,41 +116,50 @@ export class Server extends events.EventEmitter {
         if (message.utf8Data) {
           var json = JSON.parse(message.utf8Data);
           console.log(json);
-          if (json._ === "updateObject") {
-            peer.updateObject(json);
+          if ('objectChanges' in json) {
+            for (var id in json.objectChanges) {
+              if (id in this.otherObjects) {
+                // Check ownage:
+                if (peer.isOwner(id)) {
+                  peer.updateObject(id, json.objectChanges[id]);
+                } else {
+                  console.log('Peer trying to update ' + id + ' object.');
+                }
+                this.emit('remoteObjectChange', this.otherObjects[id].object);
+              }
+            }
           }
         }
       });
-      connection.on('close', function(reasonCode, description) {
-        // console.log((new Date()) + ' Peer ' + connection.remoteAddress + ' disconnected.');
+      connection.on('close', (reasonCode, description) => {
+        this.emit('peerDisconnect', peer);
       });
-
-      this.emit("newPeer", peer);
     });
   }
 
-  createSharedObject<T>(id: string, objectConstructor: any, owner?: Peer, args?: [any]): RemoteObject&T {
+  createSharedObject<T>(id: string, objectConstructor: any, owner?: Peer, args?: [any]): RemoteObject & T  {
     var name = objectConstructor.name;
     if (name) {
       if (objectConstructor.name in this.sharedObjectConstructors) {
-        let result = new (Function.prototype.bind.apply(this.sharedObjectConstructors[name], args));
-        result.__remoteTable.id = id;
-        if (owner instanceof Peer) {
-          owner.registerRemote(result);
-        } else {
-          this.serverObjects[result.__remoteTable.id] = {
+        // CHORIZO: correct way to call constructor given an array of arguments
+        let result: RemoteObject&T = new (Function.prototype.bind.apply(this.sharedObjectConstructors[name], args));
+        // TODO: do not use remoteInstance directly
+        result.__remoteInstance.id = id;
+        if (!owner) {
+          this.serverObjects[result.__remoteInstance.id] = {
             type: name,
             object: result
           };
           SetWriteDriver(result, (key, value) => {
-            this.broadcast(JSON.stringify({
-              _: "updateObject",
-              id: id,
-              k: key,
-              v: value
-            }));
+            this.emit('localObjectChange', result, key);
           });
+        } else {
+          this.otherObjects[result.__remoteInstance.id] = {
+            type: name,
+            object: result
+          };
         }
+        this.emit('newObject', result, owner || this);
         return result;
       } else {
         throw "Object constructor " + objectConstructor.name + " not registered in constructor";
@@ -147,36 +169,85 @@ export class Server extends events.EventEmitter {
     }
   }
 
-  broadcast(message: string) {
+  subscribeRoom(r: Room, obj: RemoteObject) {
+    // TODO: Do not use __remoteTable
+    this.subs[obj.__remoteInstance.id] = this.subs[obj.__remoteInstance.id] || [];
+    this.subs[obj.__remoteInstance.id].push(r);
+  }
+
+
+  triggerUpdates() {
+    if (this.triggering)
+      return;
+    this.triggering = true;
+    setTimeout((v) => {
+      this.triggering = false;
+      this.flush();
+    }, 0);
+  }
+
+  private flush() {
     for (var k in this.peers) {
-      this.peers[k].sendRaw(message);
+      this.peers[k].flush();
     }
   }
 
-  subscribe(p: Peer, path: string, obj: RemoteObject) {
-
+  private Drivers() {
+    this.on('newObject', (obj: RemoteObject, owner: Peer|this) => {
+      console.log('server@newObject');
+      // If object's owner is server, assume it is in path SERVER_PATH
+      if (owner === this) {
+        for (var k in this.peers) {
+          this.peers[k].emit('newObject', obj, SERVER_PATH);
+        }
+      }
+      // If object's owner is a peer, don't apply any path
+      else {
+        owner.emit('newObject', obj, NO_PATH);
+      }
+      this.triggerUpdates();
+    }).on('objectDestroy', (obj: RemoteObject) => {
+      console.log('server@objectDestroy');
+      // TODO: Notify owner (if still exists) of object
+      // TODO: Remove object from rooms
+      // TODO: Broadcast if object's owner is server
+      this.triggerUpdates();
+    }).on('newPeer', (p: Peer) => {
+      console.log('server@newPeer');
+      for (var k in this.serverObjects) {
+        p.emit('newObject', this.serverObjects[k].object, SERVER_PATH);
+      }
+      // TODO: Notify server config (if any)
+      this.triggerUpdates();
+    }).on('peerDisconnect', (p: Peer) => {
+      console.log('server@peerDisconnect');
+      delete this.peers[p.id];
+      // TODO: Destroy objects
+      // TODO: Remove peer from rooms
+      this.triggerUpdates();
+    }).on('localObjectChange', (obj: RemoteObject, key: string) => {
+      console.log('server@localObjectChange');
+      // NOTE: Don't notify anyone else: Room's must notify peers about changes.
+      var changes = {};
+      changes[key] = obj[key];
+      var x = this.subs[obj.__remoteInstance.id] || [];
+      x.forEach((v) => {
+        v.emit('objectChange', obj, changes);
+      })
+      if (obj.__remoteInstance.own === true) {
+        for (var k in this.peers) {
+          this.peers[k].emit('objectChange', obj, changes);
+        }
+      }
+      this.triggerUpdates();
+    }).on('remoteObjectChange', (obj: RemoteObject, changes: any) => {
+      console.log('server@remoteObjectChange');
+      // NOTE: Don't notify anyone else: Room's must notify peers about changes.
+      var x = this.subs[obj.__remoteInstance.id] || [];
+      x.forEach((v) => {
+        v.emit('objectChange', obj, changes);
+      })
+      this.triggerUpdates();
+    })
   }
-}
-
-function ServerDrivers(s: Server) {
-  s.on('newObject', (obj: RemoteObject) => {
-    // TODO: Notify owner of object
-  })
-  .on('objectDestroy', (obj: RemoteObject) => {
-    // TODO: Notify owner (if still exists) of object
-    // TODO: Remove object from rooms
-    // TODO: Broadcast if object's owner is server
-  })
-  .on('newPeer', (p: Peer) => {
-    // TODO: Notify server config (if any)
-    // TODO: Notify server objects (if any)
-  })
-  .on('peerDisconect', (p: Peer) => {
-    // TODO: Destroy objects
-    // TODO: Remove peer from rooms
-  })
-  .on('objectChange', (obj: RemoteObject) => {
-    // NOTE: Don't notify anyone else: Room's must notify peers about changes.
-    // TODO: Notify all (if owned by server)
-  })
 }
