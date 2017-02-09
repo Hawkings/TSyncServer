@@ -125,7 +125,7 @@ export class Server extends events.EventEmitter {
                 } else {
                   console.log('Peer trying to update ' + id + ' object.');
                 }
-                this.emit('remoteObjectChange', this.otherObjects[id].object);
+                this.emit('remoteObjectChange', this.otherObjects[id].object, json.objectChanges[id]);
               }
             }
           }
@@ -221,6 +221,7 @@ export class Server extends events.EventEmitter {
       this.triggerUpdates();
     }).on('peerDisconnect', (p: Peer) => {
       console.log('server@peerDisconnect');
+      p.emit('disconnect');
       delete this.peers[p.id];
       // TODO: Destroy objects
       // TODO: Remove peer from rooms
@@ -232,7 +233,7 @@ export class Server extends events.EventEmitter {
       changes[key] = obj[key];
       var x = this.subs[obj.__remoteInstance.id] || [];
       x.forEach((v) => {
-        v.emit('objectChange', obj, changes);
+        v.emit('objectChange');
       })
       if (obj.__remoteInstance.own === true) {
         for (var k in this.peers) {

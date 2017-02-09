@@ -1,7 +1,9 @@
 import {IPeer} from './IPeer';
+import {Room} from './Room';
 import {Server} from './Server'
 import events = require('events');
-import {RemoteUpdateMultipleValues as UpdateMultipleValues } from '../sharedobject/Remote';
+import {RemoteUpdateMultipleValues as UpdateMultipleValues,
+RemoteObject} from '../sharedobject/Remote';
 
 export class Peer extends events.EventEmitter implements IPeer {
   private mId: string;
@@ -13,6 +15,7 @@ export class Peer extends events.EventEmitter implements IPeer {
   }
   private writeDriver;
   private packet: any = {};
+  private rooms: {[path:string] : Room} = {};
 
   constructor(id: string, writeDriver: (any) => any) {
     super();
@@ -23,9 +26,6 @@ export class Peer extends events.EventEmitter implements IPeer {
 
     this.writeDriver = writeDriver;
 
-    this.on('message', (m) => {
-      console.log(this.mId, m);
-    })
   }
 
   isServer() {
@@ -38,6 +38,10 @@ export class Peer extends events.EventEmitter implements IPeer {
 
   isOwner(id: string) {
     return id in this.objects;
+  }
+
+  isOwnerObject(obj: RemoteObject) {
+    return obj.__remoteInstance.id in this.objects;
   }
 
   get id(): string {
@@ -87,10 +91,12 @@ export class Peer extends events.EventEmitter implements IPeer {
       x.object.emit('tsync-change', obj);
   }
 
-  flush() : void {
+  flush(): void {
     console.log("peer@flush");
-    this.writeDriver(JSON.stringify(this.packet));
-    this.packet = {};
+    if (Object.keys(this.packet).length) {
+      this.writeDriver(JSON.stringify(this.packet));
+      this.packet = {};
+    }
   }
 
   sendRaw(message: string) {
@@ -99,7 +105,7 @@ export class Peer extends events.EventEmitter implements IPeer {
 
   private Drivers() {
     this.on('objectChange', (obj, changes, path) => {
-      console.log("peer@objectChange", changes);
+      console.log("peer@objectChange", obj, changes);
       this.packet.objectChanges =
       this.packet.objectChanges || {};
       this.packet.objectChanges[obj.__remoteInstance.id] =
@@ -108,17 +114,18 @@ export class Peer extends events.EventEmitter implements IPeer {
         this.packet.objectChanges[obj.__remoteInstance.id][k] = changes[k];
       }
     })
-    .on('joinRoom', (path) => {
+      .on('joinRoom', (room: Room) => {
+        this.rooms[room.path] = room;
       console.log('peer@newRoom');
     })
-    .on('newObject', (obj, path) => {
+      .on('newObject', (obj, path) => {
       console.log('peer@newObject');
       // Object is owned by this peer
       if (path === '') {
-          this.objects[obj.__remoteInstance.id] = {
-            object: obj,
-            type: obj.constructor.name
-          };
+        this.objects[obj.__remoteInstance.id] = {
+          object: obj,
+          type: obj.constructor.name
+        };
       }
       this.packet.newObjects = this.packet.newObjects || {};
       this.packet.newObjects[obj.__remoteInstance.id] = {
@@ -126,11 +133,16 @@ export class Peer extends events.EventEmitter implements IPeer {
         path: path
       }
     })
-    .on('leaveRoom', (path) => {
+      .on('leaveRoom', (path) => {
       console.log('peer@leaveRoom');
     })
-    .on('destroyObject', (obj, path) => {
+      .on('destroyObject', (obj, path) => {
       console.log('peer@destroyObject');
+    })
+      .on('disconnect', () => {
+      for (var k in this.rooms) {
+        this.rooms[k].emit('peerLeave', this);
+      }
     })
   }
 }

@@ -20,8 +20,9 @@ var s = new Server({
 var miceRoom = new Room("mice", s);
 
 s.on('newPeer', (peer: Peer) => {
+  console.log(peer.id+"mouse");
   // Peer's owned pointer
-  var peerMouse = s.createSharedObject<ExampleMouse>("mouse", ExampleMouse, peer);
+  var peerMouse = s.createSharedObject<ExampleMouse>(peer.id + "mouse", ExampleMouse, peer);
   miceRoom.add(peerMouse);
   // either
   miceRoom.add(peer);
