@@ -1,6 +1,9 @@
 var chai = require("chai");
 var should = chai.should();
 
+declare function schemaFromObject(o: any);
+
+// TODO: arrays
 describe("schemaFromObject", function() {
 	it("should create a valid schema for an object with a single number", function() {
 		testSingleProperty(5);
@@ -13,6 +16,29 @@ describe("schemaFromObject", function() {
 	});
 	it("should create a valid schema for an object with a single null value", function() {
 		testSingleProperty(null);
+	});
+	it("should fail for non-object parameters", function() {
+		[-4, false, function(){}, null, "world"].forEach(function(val) {
+			chai.expect(() => schemaFromObject(val)).to.throw();
+		});
+	});
+	it("should create a valid schema for a complex object", function() {
+		var obj = {
+			n: 7,
+			s: " ",
+			o: {
+				p: {
+					q: {
+						b: false
+					},
+					r: {
+						n: 8
+					},
+					n: 0
+				}
+			}
+		};
+		
 	});
 
 	function testSingleProperty(value: any): void {
