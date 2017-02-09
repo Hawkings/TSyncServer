@@ -9,6 +9,7 @@ import {RemoteSetWriteDriver as SetWriteDriver, RemoteObject} from '../sharedobj
 
 const SERVER_PATH = "/";
 const NO_PATH = "";
+const PORT = 1234;
 
 var WSServer = websocket.server;
 
@@ -78,8 +79,8 @@ export class Server extends events.EventEmitter {
       response.end();
     })
 
-    this.http.listen(8080, function() {
-      console.log((new Date()) + ' Server is listening on port 8080');
+    this.http.listen(PORT, function() {
+      console.log((new Date()) + ' Server is listening on port ' + PORT);
     });
 
     this.ws = new WSServer({
