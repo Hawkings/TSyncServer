@@ -18,5 +18,9 @@
   "homepage": "https://github.com/Hawkings/TSyncServer#readme",
   "devDependencies": {
     "chai": "^3.5.0"
+  },
+  "dependencies": {
+    "chai": "^3.5.0",
+    "websocket": "^1.0.24"
   }
 }

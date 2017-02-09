@@ -1,55 +1,143 @@
-var chai = require("chai");
+import chai = require("chai");
 var should = chai.should();
+var expect = chai.expect;
 
-declare function schemaFromObject(o: any);
+import {Server} from '../core/Server';
+import {Remote, Member} from '../sharedobject/Remote';
+import {Validators as RV} from '../sharedobject/Validators';
 
-// TODO: arrays
-describe("schemaFromObject", function() {
-	it("should create a valid schema for an object with a single number", function() {
-		testSingleProperty(5);
-	});
-	it("should create a valid schema for an object with a single string", function() {
-		testSingleProperty("hello");
-	});
-	it("should create a valid schema for an object with a single boolean", function() {
-		testSingleProperty(true);
-	});
-	it("should create a valid schema for an object with a single null value", function() {
-		testSingleProperty(null);
-	});
-	it("should fail for non-object parameters", function() {
-		[-4, false, function(){}, null, "world"].forEach(function(val) {
-			chai.expect(() => schemaFromObject(val)).to.throw();
-		});
-	});
-	it("should create a valid schema for a complex object", function() {
-		var obj = {
-			n: 7,
-			s: " ",
-			o: {
-				p: {
-					q: {
-						b: false
-					},
-					r: {
-						n: 8
-					},
-					n: 0
-				}
-			}
-		};
-		
-	});
+declare function schemaFromObject(any): any;
 
-	function testSingleProperty(value: any): void {
-		var obj = {};
-		var propName = "property";
-		obj[propName] = value;
-		var propType = typeof value;
-		var schema = schemaFromObject(obj);
-		schema.should.include.keys("properties");
-		schema.properties.should.have.all.keys(propName);
-		schema.properties[propName].should.contanin.keys("type");
-		schema.properties[propName].type.should.equal(propType);
-	}
-});
+// describe("schemaFromObject", function() {
+//   it("should create a valid schema for an object with a single number", function() {
+//     testSingleProperty(5);
+//   });
+//   it("should create a valid schema for an object with a single string", function() {
+//     testSingleProperty("hello");
+//   });
+//   it("should create a valid schema for an object with a single boolean", function() {
+//     testSingleProperty(true);
+//   });// describe("schemaFromObject", function() {
+//   it("should create a valid schema for an object with a single number", function() {
+//     testSingleProperty(5);
+//   });
+//   it("should create a valid schema for an object with a single string", function() {
+//     testSingleProperty("hello");
+//   });
+//   it("should create a valid schema for an object with a single boolean", function() {
+//     testSingleProperty(true);
+//   });
+//   it("should create a valid schema for an object with a single null value", function() {
+//     testSingleProperty(null);
+//   });
+//
+//   function testSingleProperty(value: any): void {
+//     var obj = {};
+//     var propName = "property";
+//     obj[propName] = value;
+//     var propType = typeof value;
+//     var schema = schemaFromObject(obj);
+//     schema.should.include.keys("properties");
+//     schema.properties.should.have.all.keys(propName);
+//     schema.properties[propName].should.contanin.keys("type");
+//     schema.properties[propName].type.should.equal(propType);
+//   }
+// });
+//   it("should create a valid schema for an object with a single null value", function() {
+//     testSingleProperty(null);
+//   });
+//
+//   function testSingleProperty(value: any): void {
+//     var obj = {};
+//     var propName = "property";
+//     obj[propName] = value;
+//     var propType = typeof value;
+//     var schema = schemaFromObject(obj);
+//     schema.should.include.keys("properties");
+//     schema.properties.should.have.all.keys(propName);
+//     schema.properties[propName].should.contanin.keys("type");
+//     schema.properties[propName].type.should.equal(propType);
+//   }
+// });
+
+describe('Remote decorator testing', function() {
+  @Remote
+  class RemoteTest {
+    @Member(RV.isNumber.isGreatOrEqual(0))
+    public nonNegative: number;
+    @Member(RV.isString.isRegex(/^\+?[0-9]{9}$/))
+    public phoneNumber: string;
+  }
+  let x = new RemoteTest();
+
+  it('@Remote decorator mantains class\' name', () => {
+    expect(RemoteTest['name']).to.be.equal('RemoteTest');
+  })
+
+  it('@Remote can not be used without any @Member decorator', () => {
+    expect(() => {
+      @Remote
+      class X { };
+    }).to.throw();
+  })
+
+  it('@Member decorator throws when writing with wrong values', () => {
+    expect(() => { x.nonNegative = <any>"14" }).to.throw();
+    expect(() => { x.nonNegative = -3 }).to.throw();
+
+    expect(() => { x.phoneNumber = <any>965000000 }).to.throw();
+    expect(() => { x.phoneNumber = "+96500000" }).to.throw();
+    expect(() => { x.phoneNumber = "1196500000" }).to.throw();
+
+    expect(() => { x.phoneNumber = "965000000" }).not.to.throw();
+    expect(() => { x.phoneNumber = "+147748940" }).not.to.throw();
+    expect(() => { x.nonNegative = 14 }).not.to.throw();
+  })
+
+  it('@Member decorator stores correct values', () => {
+    x.nonNegative = 1779561;
+    expect(x.nonNegative).to.eq(1779561);
+
+    x.phoneNumber = "965112233";
+    expect(x.phoneNumber).to.eq("965112233");
+  })
+})
+
+  describe('Server general functionality testing', () => {
+  class X { };
+
+  @Remote
+  class Y {
+    @Member()
+    public a: any;
+  };
+
+  class Z {
+    @Member()
+    public a: any;
+  }
+
+  var s = new Server({
+    sharedObjects: [Y]
+  })
+
+  it('Server owns Server objects', () => {
+    // TODO: This way should not be correct
+    var y: Y = s.createSharedObject<Y>("serverRange", Y);
+    expect(y['__remoteInstance'].own).to.be.true
+  })
+
+  it('Server must not be constructed with non-remote classes', () => {
+    expect(() => {
+      new Server({
+        sharedObjects: [X]
+      });
+    }).to.throw()
+
+    expect(() => {
+      new Server({
+        sharedObjects: [Z]
+      });
+    }).to.throw()
+  })
+})
