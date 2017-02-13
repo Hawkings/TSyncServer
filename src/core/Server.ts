@@ -3,9 +3,8 @@ import http = require('http');
 import events = require('events');
 
 import {Room} from './Room';
-import {IPeer} from './IPeer';
 import {Peer} from './Peer';
-import {RemoteSetWriteDriver as SetWriteDriver, RemoteObject} from '../sharedobject/Remote';
+import {RemoteUtils as rUtils, RemoteObject} from '../sharedobject/Remote';
 
 const SERVER_PATH = "/";
 const NO_PATH = "";
@@ -17,15 +16,17 @@ interface IClass extends Function {
 }
 
 export class IServerConfig {
-  sharedObjects?: any[]
+  sharedObjects?: any[];
+  port?: number;
 }
 
-// TODO: Bad way to do so
-function randomID() {
-  return Math.random() + "";
+function uuid() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    var r = Math.random()*16|0, v = c == 'x' ? r : (r&0x3|0x8);
+    return v.toString(16);
+  });
 }
 
-// TODO: This class is not finished
 // TODO: add events signatures
 export class Server extends events.EventEmitter {
   private ws: websocket.server;
@@ -41,7 +42,8 @@ export class Server extends events.EventEmitter {
   private otherObjects: {
     [id: string]: {
       type: string,
-      object: any
+      object: any,
+      owner: string
     }
   }
 
@@ -52,7 +54,6 @@ export class Server extends events.EventEmitter {
   private triggering: boolean = false;
 
   // TODO: This constructor is stub
-  // TODO: Add arguments
   constructor(config: IServerConfig) {
     super()
     this.Drivers();
@@ -65,7 +66,7 @@ export class Server extends events.EventEmitter {
 
     if (config.sharedObjects) {
       config.sharedObjects.forEach((v) => {
-        if ('__remoteTable' in v.prototype && '__isRemote' in v.prototype) {
+        if (rUtils.IsRemoteClass(v)) {
           this.sharedObjectConstructors[v.name] = v;
         } else {
           throw 'Class ' + v['name'] + ' is not @Remote decorated';
@@ -78,8 +79,8 @@ export class Server extends events.EventEmitter {
       response.end();
     })
 
-    this.http.listen(8080, function() {
-      console.log((new Date()) + ' Server is listening on port 8080');
+    this.http.listen(config.port || 8080, function() {
+      console.log((new Date()) + ' Server is listening on port ' + config.port || 8080);
     });
 
     this.ws = new WSServer({
@@ -97,7 +98,7 @@ export class Server extends events.EventEmitter {
       //   return;
       // }
       var connection = request.accept('tsync', request.origin);
-      var id = randomID();
+      var id = uuid();
       var peer = new Peer(id,
         (w) => connection.sendUTF(w));
 
@@ -146,18 +147,20 @@ export class Server extends events.EventEmitter {
         // TODO: do not use remoteInstance directly
         result.__remoteInstance.id = id;
         if (!owner) {
-          this.serverObjects[result.__remoteInstance.id] = {
+          this.serverObjects[id] = {
             type: name,
             object: result
           };
-          SetWriteDriver(result, (key, value) => {
+          rUtils.SetDriver(result, (key, value) => {
             this.emit('localObjectChange', result, key);
           });
         } else {
-          this.otherObjects[result.__remoteInstance.id] = {
+          this.otherObjects[id] = {
             type: name,
-            object: result
+            object: result,
+            owner: owner.id
           };
+          rUtils.ChangeOwnership(result, false);
         }
         this.emit('newObject', result, owner || this);
         return result;
@@ -170,9 +173,8 @@ export class Server extends events.EventEmitter {
   }
 
   subscribeRoom(r: Room, obj: RemoteObject) {
-    // TODO: Do not use __remoteTable
-    this.subs[obj.__remoteInstance.id] = this.subs[obj.__remoteInstance.id] || [];
-    this.subs[obj.__remoteInstance.id].push(r);
+    this.subs[rUtils.GetId(obj)] = this.subs[rUtils.GetId(obj)] || [];
+    this.subs[rUtils.GetId(obj)].push(r);
   }
 
 
@@ -208,9 +210,27 @@ export class Server extends events.EventEmitter {
       this.triggerUpdates();
     }).on('objectDestroy', (obj: RemoteObject) => {
       console.log('server@objectDestroy');
-      // TODO: Notify owner (if still exists) of object
-      // TODO: Remove object from rooms
-      // TODO: Broadcast if object's owner is server
+      var id = rUtils.GetId(obj);
+      var d1 = this.otherObjects[id];
+      if (d1) {
+        if (d1.owner in this.peers) {
+          this.peers[d1.owner].emit('objectDestroy', obj);
+          this.subs[id].forEach((v) => {
+            v.emit('objectDestroy', obj);
+          });
+          delete this.otherObjects[id];
+        }
+      } else {
+        var d2 = this.serverObjects[id];
+        if (d2) {
+          for (var k in this.peers) {
+            this.peers[k].emit('objectDestroy', obj);
+          }
+          delete this.serverObjects[id];
+        } else {
+          console.error('Destroying unkown object.')
+        }
+      }
       this.triggerUpdates();
     }).on('newPeer', (p: Peer) => {
       console.log('server@newPeer');
@@ -223,19 +243,18 @@ export class Server extends events.EventEmitter {
       console.log('server@peerDisconnect');
       p.emit('disconnect');
       delete this.peers[p.id];
-      // TODO: Destroy objects
-      // TODO: Remove peer from rooms
+      // TODO: Destroy objects (configurable)
       this.triggerUpdates();
     }).on('localObjectChange', (obj: RemoteObject, key: string) => {
       console.log('server@localObjectChange');
       // NOTE: Don't notify anyone else: Room's must notify peers about changes.
       var changes = {};
       changes[key] = obj[key];
-      var x = this.subs[obj.__remoteInstance.id] || [];
+      var x = this.subs[rUtils.GetId(obj)] || [];
       x.forEach((v) => {
         v.emit('objectChange');
       })
-      if (obj.__remoteInstance.own === true) {
+      if (rUtils.GetOwn(obj)) {
         for (var k in this.peers) {
           this.peers[k].emit('objectChange', obj, changes);
         }
@@ -244,7 +263,7 @@ export class Server extends events.EventEmitter {
     }).on('remoteObjectChange', (obj: RemoteObject, changes: any) => {
       console.log('server@remoteObjectChange');
       // NOTE: Don't notify anyone else: Room's must notify peers about changes.
-      var x = this.subs[obj.__remoteInstance.id] || [];
+      var x = this.subs[rUtils.GetId(obj)] || [];
       x.forEach((v) => {
         v.emit('objectChange', obj, changes);
       })

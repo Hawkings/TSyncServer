@@ -6,7 +6,7 @@ import events = require("events");
 
 @Remote
 class ExampleSyncedRanger {
-  @Member(RV.isNumericString.isGreatOrEqual(0).isLessOrEqual(100))
+  @Member(RV.isNumericString.isGreaterOrEqual(0).isLessOrEqual(100))
   public value: string;
 }
 

@@ -36,7 +36,7 @@ export class ValidatorChain {
     return this.isType("boolean");
   }
 
-  isGreatOrEqual(than: number) {
+  isGreaterOrEqual(than: number) {
     this.chain((v) => v >= than ? v : undefined);
     return this;
   }
@@ -46,7 +46,12 @@ export class ValidatorChain {
     return this;
   }
 
-  isRegex(r: RegExp) {
+  isEqual(than: number) {
+    this.chain((v) => v <= than ? v : undefined);
+    return this;
+  }
+
+  matchesRegex(r: RegExp) {
     this.chain((v) => {
       return r.test(v) ? v : undefined;
     })
