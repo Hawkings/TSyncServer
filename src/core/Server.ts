@@ -8,7 +8,6 @@ import {RemoteUtils as rUtils, RemoteObject} from '../sharedobject/Remote';
 
 const SERVER_PATH = "/";
 const NO_PATH = "";
-const PORT = 1234;
 
 var WSServer = websocket.server;
 
